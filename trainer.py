@@ -9,7 +9,7 @@ import os.path
 import random
 from datetime import datetime
 from processUtil import ensureWrite, ensureWrites
-from rallyProcess import getBotParameters, getBotParametersBounds, setBotParameters
+from rallyProcess import getBotParameters, getBotParametersBounds, getProcessBotParameters, setBotParameters
 from rallyUtil import currentPlayerToPlayer0
 from util import selectMean
 
@@ -40,7 +40,8 @@ pFalseStartTime = process.get_pointer(0x43b9f4)
 #pCurrentGearNumber = process.get_pointer(currentPlayerToPlayer0(0x71A1AC))
 #pCurrentAccelerationOnPedal = process.get_pointer(currentPlayerToPlayer0(0x719FF0))
 
-botParameters = getBotParameters(process)
+botParameters = getBotParameters()
+processBotParameters = getProcessBotParameters(process)
 
 botParametersBounds = getBotParametersBounds(botParameters)
 
@@ -57,7 +58,7 @@ def resetCarOnStage():
 def runStage(args):
     #print(args)
     print("Start")
-    setBotParameters(botParameters, args, process)
+    setBotParameters(processBotParameters, args, process)
     resetCarOnStage()
     while(True):
         winTime = process.read(pWinTime)
