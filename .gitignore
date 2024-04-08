@@ -1,1 +1,6 @@
-logs*
+logs/
+ral.exe
+*.spec
+build/
+dist/
+__pycache__/
