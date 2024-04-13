@@ -8,12 +8,19 @@ def readFile(path):
     with open(path, 'r') as file:
         return file.read()
     
+def writeFile(path, content):
+    with open(path, 'w') as file:
+        file.write(content)
+    
 def parseJSON(jsonString):
     try:
         return json.loads(jsonString)
     except json.JSONDecodeError:
         print(f"Couldn't parse: {jsonString}")
         return None
+
+def toJSON(obj):
+    return json.dumps(obj)
 
 def selectMean(meanCount, arr):
     arr.sort(reverse=True)

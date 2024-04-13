@@ -55,4 +55,4 @@ def getBotParameters():
         [0x462e37, 1, 0, 0x3f, 1], #fifthTurnSpeedCheck
         #[process.get_pointer(0x462e98), 4, 0, 5145, 4]
     ]
-    return map(lambda compactParameter: BotParameter(compactParameter), compactParameters)
+    return list(map(lambda compactParameter: BotParameter(compactParameter), compactParameters))
