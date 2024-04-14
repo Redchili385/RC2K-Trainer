@@ -1,5 +1,5 @@
 from LocalReadWriteMemory import ReadWriteMemory
-from rallyProcess import getBotParameters, setBotParameters
+from rallyProcess import getBotParameters, setProcessBotParametersToProcess
 from util import parseJSON, readFile
 
 
@@ -15,6 +15,6 @@ logsBestList.sort(key=lambda x: x["target"], reverse=True)
 bestLog = logsBestList[0]
 print(bestLog)
 
-setBotParameters(getBotParameters(process), bestLog["params"], process)
+setProcessBotParametersToProcess(getBotParameters(process), bestLog["params"], process)
 
 process.close()

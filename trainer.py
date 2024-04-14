@@ -9,7 +9,7 @@ import os.path
 import random
 from datetime import datetime
 from processUtil import ensureWrite, ensureWrites
-from rallyProcess import getBotParameters, getBotParametersBounds, getProcessBotParameters, setBotParameters
+from rallyProcess import getBotParameters, getBotParametersBounds, getProcessBotParameterValuesFromProcess, getProcessBotParameters, getProcessBotParametersByAddress, setProcessBotParametersToProcess
 from rallyUtil import currentPlayerToPlayer0
 from util import selectMean
 
@@ -42,6 +42,7 @@ pFalseStartTime = process.get_pointer(0x43b9f4)
 
 botParameters = getBotParameters()
 processBotParameters = getProcessBotParameters(process)
+processBotParametersByAddress = getProcessBotParametersByAddress(processBotParameters)
 
 botParametersBounds = getBotParametersBounds(botParameters)
 
@@ -58,7 +59,7 @@ def resetCarOnStage():
 def runStage(args):
     #print(args)
     print("Start")
-    setBotParameters(processBotParameters, args, process)
+    setProcessBotParametersToProcess(processBotParametersByAddress, args, process)
     resetCarOnStage()
     while(True):
         winTime = process.read(pWinTime)
@@ -93,7 +94,7 @@ setUpGame()
 bounds_transformer = SequentialDomainReductionTransformer(
     gamma_osc = 0.7,
     gamma_pan = 1.0,
-    eta= 0.93,
+    eta= 0.95,
     minimum_window=0.0
 )
 
@@ -106,23 +107,20 @@ optimizer = BayesianOptimization(
     allow_duplicate_points=True,
 )
 
-if os.path.isfile("./logs/logsBest_202404072212_Port_Soderick.json"):
-    load_logs(optimizer, logs=["./logs/logsBest_202404072212_Port_Soderick.json"])
-else:
-    optimizer.probe(
-        params={"1": 256, "2": 255, "3": 1, "4": 5, "5": 10, "6": 50, "7": 40, "8": 25, "9": 40, "10": 250,
-                "11": 250, "12": 250, "13": 250, "14": 250, "15": 250, "16": 250, "17": 250, "18": 250, "19": 250, "20": 250,
-                "21": 250, "22": 100, "23": 70, "24": 60, "25": 50, "26": 50, "27": 50, "28": 50, "29": 50, "30": 50,
-                "31": 40, "32": 40, "33": 40, "34": 30, "35": 70, "36": 90, "37": 60, "38": 70, "39": 40},
-        lazy=True,
-    )
+# if os.path.isfile("./logs/logsBest_20240413_Port_Soderick.json"):
+#     load_logs(optimizer, logs=["./logs/logsBest_20240413_Port_Soderick.json"])
+# else:
+optimizer.probe(
+    params=getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process),
+    lazy=True,
+)
 
 mapName = "Port_Soderick"
 logger = JSONLogger(path=f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{mapName}", reset=True)
 optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
 
 optimizer.set_gp_params(alpha=1e-3, n_restarts_optimizer=500)
-acquisition_function = UtilityFunction(kind="ucb", kappa=1e1, kappa_decay=0.80)
+acquisition_function = UtilityFunction(kind="ucb", kappa=1e1, kappa_decay=0.85)
 optimizer.maximize(
     acquisition_function=acquisition_function,
     init_points=0,

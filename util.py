@@ -1,8 +1,14 @@
-from ctypes import c_uint32
+from ctypes import c_int8, c_uint8, c_int32
 import json
 
-def uint32(val):
-    return c_uint32(val).value
+def int8(val):
+    return c_int8(val).value
+
+def uint8(val):
+    return c_uint8(val).value
+
+def int32(val):
+    return c_int32(val).value
 
 def readFile(path):
     with open(path, 'r') as file:

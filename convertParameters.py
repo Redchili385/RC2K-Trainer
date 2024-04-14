@@ -18,7 +18,7 @@ for line in logsBest.split("\n"):
         value = params[key]
         botParameter = botParameters[i]
         address = botParameter.address
-        size = botParameter.size
+        size = botParameter.dataType
         dataType = "int32"
         if size == 1:
             dataType = "int8"
