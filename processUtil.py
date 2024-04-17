@@ -1,3 +1,4 @@
+import struct
 from util import int32, uint8
 from time import sleep
 
@@ -33,6 +34,21 @@ def ensureWrites(ptrValues, process):
 
 def readByte(ptr, process):
     return int(process.readByte(ptr)[0], base=16)
+
+def readFloat(ptr, process):
+    intValue = process.read(ptr)
+    bytes = struct.pack("<I", intValue)
+    return struct.unpack("<f", bytes)[0]
+
+def writeFloat(ptr, value, process):
+    bytes = struct.pack("<f", value)
+    intValue = struct.unpack("<I", bytes)[0]
+    process.write(ptr, intValue)
+
+def ensureWriteFloat(ptr, value, process):
+    bytes = struct.pack("<f", value)
+    intValue = struct.unpack("<I", bytes)[0]
+    ensureWrite(ptr, intValue, process)
 
 def ensureWriteByte(ptr, value, process):
     value = uint8(value)

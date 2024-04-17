@@ -1,5 +1,4 @@
 from time import sleep
-from LocalReadWriteMemory import ReadWriteMemory
 from bayes_opt import BayesianOptimization, UtilityFunction
 from bayes_opt.logger import JSONLogger
 from bayes_opt.event import Events
@@ -8,10 +7,12 @@ from bayes_opt import SequentialDomainReductionTransformer
 import os.path
 import random
 from datetime import datetime
-from processUtil import ensureWrite, ensureWrites
+from LocalReadWriteMemory import ReadWriteMemory
+from processUtil import ensureWrite, ensureWrites, readFloat
 from rallyProcess import getBotParameters, getBotParametersBounds, getProcessBotParameterValuesFromProcess, getProcessBotParameters, getProcessBotParametersByAddress, setProcessBotParametersToProcess
 from rallyUtil import currentPlayerToPlayer0
 from util import selectMean
+#from GTBO import GTBO
 
 random.seed(datetime.now().ctime())
 
@@ -35,6 +36,9 @@ pCentisecondsSinceLevelLoaded = process.get_pointer(currentPlayerToPlayer0(0x719
 pMaxWinTime = process.get_pointer(0x436a13)
 pMaxWinTime2 = process.get_pointer(0x436a39)
 pFalseStartTime = process.get_pointer(0x43b9f4)
+pValidTrackPosition = process.get_pointer(0x70f3ec+0x94)
+pMaximumTrackPosition = process.get_pointer(0x623640)
+engineDamageAddress = 0x70f3ec+0*0xfe0+0x2B8
 #pBotCalculated2Strength2 = process.get_pointer(0x71bfa4)
 #pTriggerGameStart = process.get_pointer(currentPlayerToPlayer0(0x719FF4))
 #pCurrentGearNumber = process.get_pointer(currentPlayerToPlayer0(0x71A1AC))
@@ -66,9 +70,13 @@ def runStage(args):
         if winTime > 0:
             break
         centisecondsSinceStart = process.read(pCentisecondsSinceStart)
-        if(centisecondsSinceStart > 100 * 60 * 15 and centisecondsSinceStart < 0x3FFFFFFF):
+        maximumTrainingSessionTime = 100 * 60 * 15
+        if(centisecondsSinceStart > maximumTrainingSessionTime and centisecondsSinceStart < 0x3FFFFFFF):
             print("End2")
-            return 0
+            validTrackPosition = process.read(pValidTrackPosition)
+            maximumTrackPosition = process.read(pMaximumTrackPosition)
+            engineDamage = readFloat(engineDamageAddress, process)
+            return (6000/maximumTrainingSessionTime) * (validTrackPosition / maximumTrackPosition) * (1 - engineDamage)
         sleep(0.1)
     time = process.read(pCentisecondsSinceStart)
     #print(time)
@@ -93,10 +101,12 @@ setUpGame()
 
 bounds_transformer = SequentialDomainReductionTransformer(
     gamma_osc = 0.7,
-    gamma_pan = 1.0,
+    gamma_pan = 4.0,
     eta= 0.95,
     minimum_window=0.0
 )
+#print(botParametersBounds["0x71beba_float32"][0])
+#print(type(botParametersBounds["0x71beba_float32"][0]))
 
 optimizer = BayesianOptimization(
     f=black_box_function,
@@ -120,7 +130,7 @@ logger = JSONLogger(path=f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{
 optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
 
 optimizer.set_gp_params(alpha=1e-3, n_restarts_optimizer=500)
-acquisition_function = UtilityFunction(kind="ucb", kappa=1e1, kappa_decay=0.85)
+acquisition_function = UtilityFunction(kind="ucb", kappa=1e1, kappa_decay=0.87)
 optimizer.maximize(
     acquisition_function=acquisition_function,
     init_points=0,

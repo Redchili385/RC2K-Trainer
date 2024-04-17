@@ -3,4 +3,5 @@ ral.exe
 *.spec
 build/
 dist/
+dist-versions/
 __pycache__/

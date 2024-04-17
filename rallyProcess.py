@@ -1,5 +1,5 @@
 
-from processUtil import ensureWrite, ensureWriteByte, readByte
+from processUtil import ensureWrite, ensureWriteByte, ensureWriteFloat, readByte, readFloat
 from rallyUtil import getBotParameters
 
 class ProcessBotParameter:
@@ -15,7 +15,6 @@ def getProcessBotParameterValuesFromProcess(processBotParametersByAddress, proce
     for processBotParameter in processBotParametersByAddress.values():
         botParameter = processBotParameter.botParameter
         valuesDictKey = getKeyByBotParameter(botParameter)
-        stepSize = botParameter.stepSize
         dataType = botParameter.dataType
         pointer = processBotParameter.pointer
         if dataType == "uint8":
@@ -28,7 +27,8 @@ def getProcessBotParameterValuesFromProcess(processBotParametersByAddress, proce
             value = process.read(pointer)
             if value > 0x7fffffff:
                 value = value - 0x100000000
-        value = value / stepSize
+        if dataType == "float32":
+            value = readFloat(pointer, process)
         valuesDict[valuesDictKey] = value
     return valuesDict
 
@@ -36,10 +36,15 @@ def setProcessBotParametersToProcess(processBotParametersByAddress, valuesDict, 
     for processBotParameter in processBotParametersByAddress.values():
         botParameter = processBotParameter.botParameter
         valuesDictKey = getKeyByBotParameter(botParameter)
-        value = int(round(valuesDict[valuesDictKey], 0))
-        stepSize = botParameter.stepSize
-        value = value * stepSize
+        value = valuesDict[valuesDictKey]
         dataType = botParameter.dataType
+        stepSize = botParameter.stepSize
+        if dataType != "float32":
+            value = int(round(value, 0))
+            min = botParameter.minValue
+            valueDiff = value - min
+            valueDiff = valueDiff - valueDiff % stepSize
+            value = min + valueDiff
         pointer = processBotParameter.pointer
         if dataType == "uint8":
             ensureWriteByte(pointer, value, process)
@@ -47,6 +52,8 @@ def setProcessBotParametersToProcess(processBotParametersByAddress, valuesDict, 
             ensureWriteByte(pointer, value, process)
         if dataType == "int32":
             ensureWrite(pointer, value, process)
+        if dataType == "float32":
+            ensureWriteFloat(pointer, value, process)
 
 def getBotParameterBounds(botParameter):
     return (botParameter.minValue, botParameter.maxValue)
