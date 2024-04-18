@@ -1,20 +1,22 @@
 from time import sleep
-from bayes_opt import BayesianOptimization, UtilityFunction
-from bayes_opt.logger import JSONLogger
-from bayes_opt.event import Events
-from bayes_opt.util import load_logs
-from bayes_opt import SequentialDomainReductionTransformer
-import os.path
 import random
 from datetime import datetime
+import json
+
+from botorch import fit_gpytorch_model
+from gpytorch import ExactMarginalLogLikelihood
+import torch
 from LocalReadWriteMemory import ReadWriteMemory
 from processUtil import ensureWrite, ensureWrites, readFloat
-from rallyProcess import getBotParameters, getBotParametersBounds, getProcessBotParameterValuesFromProcess, getProcessBotParameters, getProcessBotParametersByAddress, setProcessBotParametersToProcess
+from rallyProcess import getBotParameters, getBotParametersBounds, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, getProcessBotParametersByAddress, setProcessBotParametersToProcess
 from rallyUtil import currentPlayerToPlayer0
 from util import selectMean
-#from GTBO import GTBO
+from gtbo.gaussian_process import robust_optimize_acqf
+from botorch.models import SingleTaskGP
+from botorch.acquisition import UpperConfidenceBound
 
 random.seed(datetime.now().ctime())
+torch.set_printoptions(threshold=10_000)
 
 rwm = ReadWriteMemory()
 process = rwm.get_process_by_name("ral.exe")
@@ -85,7 +87,7 @@ def runStage(args):
 
 def black_box_function(**args):
     scores = []
-    for i in range(2):
+    for i in range(1):
         scores.append(runStage(args))
     return selectMean(1, scores)
 
@@ -99,40 +101,120 @@ def setUpGame():
 
 setUpGame()
 
-bounds_transformer = SequentialDomainReductionTransformer(
-    gamma_osc = 0.7,
-    gamma_pan = 4.0,
-    eta= 0.95,
-    minimum_window=0.0
-)
 #print(botParametersBounds["0x71beba_float32"][0])
 #print(type(botParametersBounds["0x71beba_float32"][0]))
-
-optimizer = BayesianOptimization(
-    f=black_box_function,
-    pbounds=botParametersBounds,
-    random_state=random.randint(0, 0xffffffff),
-    verbose=2,
-    bounds_transformer=bounds_transformer,
-    allow_duplicate_points=True,
-)
 
 # if os.path.isfile("./logs/logsBest_20240413_Port_Soderick.json"):
 #     load_logs(optimizer, logs=["./logs/logsBest_20240413_Port_Soderick.json"])
 # else:
-optimizer.probe(
-    params=getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process),
-    lazy=True,
-)
+
+def standardize(Y):
+    stddim = -1 if Y.dim() < 2 else -2
+    Y_std = Y.std(dim=stddim, keepdim=True)
+    Y_std = Y_std.where(Y_std >= 1e-9, torch.full_like(Y_std, 1.0))
+    Y_mean = Y.mean(dim=stddim, keepdim=True)
+    return (Y - Y_mean) / Y_std, Y_mean, Y_std
+
+def unstandardize(Y, Y_mean, Y_std):
+    return Y * Y_std + Y_mean
+
+def normalize(i: torch.Tensor):
+    min = i.min(dim=0)[0]
+    max = i.max(dim=0)[0]
+    print("min, max")
+    print(min, max)
+    return (i - min) / (max - min), min, max
+
+#print(normalize(torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 10.0, 12.0]], dtype=torch.float64)))
+
+def unnormalize(i, min, max):
+    return i * (max - min) + min
+
+def botParameterBoundsToTensor(botParameterBounds):
+    tensorBounds = []
+    for botParameterBound in botParameterBounds.values():
+        min = float(botParameterBound[0])
+        max = float(botParameterBound[1])
+        tensorBounds.append([min, max])
+    return torch.tensor(tensorBounds, dtype=torch.float64).transpose(0, 1)
+
+
+def tensorToBotParameterValuesByAddress(tensor):
+    paramValuesByAddress = {}
+    for (i, value) in enumerate(tensor):
+        botParameter = botParameters[i]
+        key = getKeyByBotParameter(botParameter)
+        paramValuesByAddress[key] = value.item()
+    return paramValuesByAddress
+
+def botParameterValuesByAddressToTensor(paramValuesByAddress):
+    initialValues = []
+    for processBotParameter in processBotParameters:
+        key = getKeyByBotParameter(processBotParameter.botParameter)
+        initialValues.append(paramValuesByAddress[key])
+    return torch.tensor([initialValues], dtype=torch.float64)
+
+def black_box_torch_function(input_tensor):
+    paramValuesByAddress = tensorToBotParameterValuesByAddress(input_tensor)
+    target = black_box_function(**paramValuesByAddress)
+    return torch.tensor([target], dtype=torch.float64)
+
+def getInitialValuesTorch(bounds: torch.Tensor):
+    valuesByAddress = getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process)
+    torchInitialValues = botParameterValuesByAddressToTensor(valuesByAddress)
+    torchTarget = torch.tensor([[black_box_function(**valuesByAddress)]], dtype=torch.float64)
+    for bound in bounds:
+        boundTarget = black_box_torch_function(bound)
+        torchTarget = torch.cat((torchTarget, boundTarget.unsqueeze(0)), dim=0)
+        torchInitialValues = torch.cat((torchInitialValues, bound.unsqueeze(0)), dim=0)
+    return torchInitialValues, torchTarget
+
+def getNextValuesTorch(initX, initY):
+    x, initXMin, initXMax = normalize(initX)
+    y, _, _ = standardize(initY)
+    print(x, y)
+    singleModel = SingleTaskGP(x, y)
+    mll = ExactMarginalLogLikelihood(singleModel.likelihood, singleModel)
+    fit_gpytorch_model(mll)
+    ucb = UpperConfidenceBound(singleModel, beta=0.1)
+    singleBounds = torch.tensor([[0.0], [1.0]], dtype=torch.float64)
+    bounds = torch.cat([singleBounds for _ in range(x.shape[1])], dim=1)
+
+    candidates, _ = robust_optimize_acqf(
+        acq_function=ucb,
+        bounds=bounds,
+        q=1,
+    )
+    candidatesToRun = unnormalize(candidates, initXMin, initXMax)[0]
+    newTarget = black_box_torch_function(candidatesToRun)
+    return candidatesToRun, newTarget
+
+def logStepValue(stepParams, target, fileToLogPath):
+    file = open(fileToLogPath, "a")
+    botParameterValues = tensorToBotParameterValuesByAddress(stepParams)
+    file.write(json.dumps({
+        "target": target.item(),
+        "params": botParameterValues
+    }))
+    file.write("\n")
+    file.close()
+
 
 mapName = "Port_Soderick"
-logger = JSONLogger(path=f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{mapName}", reset=True)
-optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
+bounds = botParameterBoundsToTensor(botParametersBounds)
+initX, initY = getInitialValuesTorch(bounds)
+fileToLogPath = f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{mapName}.json"
+for i in range(initX.shape[0]):
+    logStepValue(initX[i], initY[i], fileToLogPath)
 
-optimizer.set_gp_params(alpha=1e-3, n_restarts_optimizer=500)
-acquisition_function = UtilityFunction(kind="ucb", kappa=1e1, kappa_decay=0.87)
-optimizer.maximize(
-    acquisition_function=acquisition_function,
-    init_points=0,
-    n_iter=10000,
-)
+maxSteps = 500
+for i in range(maxSteps):
+    x, y = getNextValuesTorch(initX, initY)
+    logStepValue(x, y, fileToLogPath)
+
+    x = x.unsqueeze(0)
+    y = y.unsqueeze(0)
+    initX = torch.cat((initX, x), dim=0)
+    initY = torch.cat((initY, y), dim=0)
+
+    

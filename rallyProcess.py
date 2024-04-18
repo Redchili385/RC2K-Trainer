@@ -8,7 +8,7 @@ class ProcessBotParameter:
         self.botParameter = botParameter
 
 def getProcessBotParameters(process):
-    return map(lambda botParameter: ProcessBotParameter(botParameter, process), getBotParameters())
+    return list(map(lambda botParameter: ProcessBotParameter(botParameter, process), getBotParameters()))
 
 def getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process):
     valuesDict = {}
