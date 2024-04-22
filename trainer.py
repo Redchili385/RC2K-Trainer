@@ -8,16 +8,23 @@ from gpytorch import ExactMarginalLogLikelihood
 import torch
 from LocalReadWriteMemory import ReadWriteMemory
 from processUtil import ensureWrite, ensureWrites, readFloat
-from rallyProcess import getBotParameters, getBotParametersBounds, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, getProcessBotParametersByAddress, setProcessBotParametersToProcess
-from rallyUtil import currentPlayerToPlayer0
-from util import selectMean
+from rallyProcess import getBotParameters, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, setProcessBotParametersToProcess
+from rallyUtil import currentPlayerToPlayer0, getBotParametersBounds, getProcessBotParametersByAddress
+from util import parseJSON, readFile, selectMean
 from gtbo.gaussian_process import robust_optimize_acqf
-from gtbo.benchmarks import EffectiveDimBoTorchBenchmark
+from gtbo.benchmarks import BoTorchFunctionBenchmark
 from gtbo.gtbo import GTBO
 from botorch.models import SingleTaskGP
 from botorch.acquisition import UpperConfidenceBound
 from botorch.test_functions.synthetic import SyntheticTestFunction, Ackley
 import gin
+import logging
+import os
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
+logging.basicConfig(level=logging.DEBUG)
+logging.debug("DEBUG: RC2K Trainer Started")
 
 random.seed(datetime.now().ctime())
 torch.set_printoptions(threshold=10_000)
@@ -92,13 +99,24 @@ def runStage(args):
     print("End")
     return 6000/time
 
+numberOfRunsPerEvaluation = 1
+#current_noise_std = 0.01/numberOfRunsPerEvaluation
+current_noise_std = 0
 def black_box_function(**args):
     scores = []
-    for i in range(1):
+    for i in range(numberOfRunsPerEvaluation):
         scores.append(runStage(args))
     return selectMean(1, scores)
 
+def setBestParameters(process):
+    logsBestString = readFile("./logs/logs_202404220414_Port_Soderick.json")
+    logsBestStrings = logsBestString.split("\n")
+    logsBestList = [parseJSON(line) for line in logsBestStrings if parseJSON(line) is not None]
+    bestLog = logsBestList[120]
+    setProcessBotParametersToProcess(getProcessBotParametersByAddress(getProcessBotParameters(process)), bestLog["params"], process)
+
 def setUpGame():
+    setBestParameters(process)
     ensureWrite(pMaxWinTime, 3000000, process)
     ensureWrite(pMaxWinTime2, 3000000, process)
     ensureWrite(pFalseStartTime, 5000, process)
@@ -143,7 +161,7 @@ def botParameterBoundsToTensor(botParameterBounds):
         min = float(botParameterBound[0])
         max = float(botParameterBound[1])
         tensorBounds.append([min, max])
-    return torch.tensor(tensorBounds, dtype=torch.float64).transpose(0, 1)
+    return torch.tensor(tensorBounds, dtype=torch.float32).transpose(0, 1)
 
 
 def tensorToBotParameterValuesByAddress(tensor):
@@ -165,25 +183,32 @@ def botParameterValuesByAddressToTensor(paramValuesByAddress):
     for processBotParameter in processBotParameters:
         key = getKeyByBotParameter(processBotParameter.botParameter)
         initialValues.append(paramValuesByAddress[key])
-    return torch.tensor(initialValues, dtype=torch.float64)
+    return torch.tensor(initialValues, dtype=torch.float32)
 
 def black_box_torch_function(input_tensor: torch.Tensor, base_tensor: torch.Tensor):
-    print("input_tensor")
-    print(input_tensor)
-    #print("base_tensor")
-    #print(base_tensor)
-    input_tensor_size = input_tensor.shape[1]
-    #print("input_tensor_size")
-    #print(input_tensor_size)
-    copied_base_tensor = base_tensor.clone().detach()
-    copied_base_tensor[:input_tensor_size] = input_tensor[:input_tensor_size]
-    #print("copied_base_tensor")
-    #print(copied_base_tensor)
-    paramValuesByAddress = tensorToBotParameterValuesByAddress(copied_base_tensor)
-    target = black_box_function(**paramValuesByAddress)
-    output_tensor = torch.tensor(target, dtype=torch.float64)
-    logStepValue(input_tensor[0], output_tensor)
-    return output_tensor
+    # print("input_tensor")
+    # print(input_tensor)
+    sumTarget = torch.empty((0), dtype=torch.float32)
+    for input_tensor_line in input_tensor:
+        # print(input_tensor_line)
+        # print("base_tensor")
+        # print(base_tensor)
+        input_tensor_size = input_tensor_line.shape[0]
+        # print("input_tensor_size")
+        # print(input_tensor_size)
+        copied_base_tensor = base_tensor.clone().detach()
+        copied_base_tensor[:input_tensor_size] = input_tensor_line[:input_tensor_size]
+        # print("copied_base_tensor")
+        # print(copied_base_tensor)
+        paramValuesByAddress = tensorToBotParameterValuesByAddress(copied_base_tensor)
+        target = black_box_function(**paramValuesByAddress)
+        targetTensor = torch.tensor([target], dtype=torch.float32)
+        logStepValue(input_tensor_line, targetTensor)
+        # print("sumTarget")
+        # print(sumTarget)
+        # print(targetTensor)
+        sumTarget = torch.cat((sumTarget, targetTensor), dim=0)
+    return sumTarget
 
 def getInitialInputValuesTorch():
     valuesByAddress = getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process)
@@ -193,7 +218,7 @@ def getInitialValueTorch():
     torchInitialValues, valuesByAddress = getInitialInputValuesTorch()
     print("torchInitialValues")
     print(torchInitialValues)
-    torchTarget = torch.tensor([black_box_function(**valuesByAddress)], dtype=torch.float64)
+    torchTarget = torch.tensor([black_box_function(**valuesByAddress)], dtype=torch.float32)
     return torchInitialValues, torchTarget
 
 def getInitialValuesTorch(bounds: torch.Tensor):
@@ -214,7 +239,7 @@ def getNextValuesTorch(initX, initY):
     mll = ExactMarginalLogLikelihood(singleModel.likelihood, singleModel)
     fit_gpytorch_model(mll)
     ucb = UpperConfidenceBound(singleModel, beta=0.1)
-    singleBounds = torch.tensor([[0.0], [1.0]], dtype=torch.float64)
+    singleBounds = torch.tensor([[0.0], [1.0]], dtype=torch.float32)
     bounds = torch.cat([singleBounds for _ in range(x.shape[1])], dim=1)
 
     candidates, _ = robust_optimize_acqf(
@@ -236,14 +261,20 @@ def logStepValue(stepParams, target):
     file.write("\n")
     file.close()
 
-
-bounds = botParameterBoundsToTensor(botParametersBounds)
-transposedBounds = bounds.clone().detach().transpose(0, 1)
+#Setting bounds
+initialBounds = botParameterBoundsToTensor(botParametersBounds)
+print("initialBounds")
+print(initialBounds)
+initialInputValuesTorch, _ = getInitialInputValuesTorch()
+print("initialInputValuesTorch")
+print(initialInputValuesTorch)
+boundsWindow = 0.005
+bounds = (initialBounds - initialInputValuesTorch)*boundsWindow + initialInputValuesTorch
 print("bounds")
 print(bounds)
+transposedBounds = bounds.clone().detach().transpose(0, 1)
 print("transposedBounds")
 print(transposedBounds)
-
 
 def startBoTorchBayesianOptimization():
     maxSteps = 500
@@ -264,12 +295,12 @@ def startBoTorchBayesianOptimization():
 gin.parse_config_file('default.gin')
 
 class RallySynteticFunction(SyntheticTestFunction):
-    def __init__(self, noise_std=0.1, negate=True, **tkwargs):
+    def __init__(self, noise_std=current_noise_std, negate=True, **tkwargs):
         print("Init RallySynteticFunction")
         self.dim = bounds.shape[1]
         print("self.dim")
         print(self.dim)
-        self.base_tensor, _ = getInitialInputValuesTorch()
+        self.base_tensor = initialInputValuesTorch
         #print("self.base_tensor")
         #print(self.base_tensor)
         self._optimal_value = 0.30
@@ -277,43 +308,44 @@ class RallySynteticFunction(SyntheticTestFunction):
         self.default = self.base_tensor
 
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
-        print("evaluate_true RallySynteticFunction X")
-        print(X)
+        # print("evaluate_true RallySynteticFunction X")
+        # print(X)
         target =  black_box_torch_function(X, self.base_tensor)
-        print(target)
+        # print(target)
         return target
 
 print(type(RallySynteticFunction))
 
-class RallyBenchmark(EffectiveDimBoTorchBenchmark):
+class RallyBenchmark(BoTorchFunctionBenchmark):
     def __init__(self, **kwargs):
-        print("Init RallyBenchmark")
+        logging.debug("Init RallyBenchmark")
         super().__init__(
             dim = bounds.shape[1],
+            noise_std=current_noise_std,
             ub = bounds[1],
             lb = bounds[0],
-            noise_std=0.01,
-            effective_dim = bounds.shape[1],
+            returns_noiseless=True,
+            #effective_dim = bounds.shape[1],
             benchmark_func=RallySynteticFunction
         )
         self.default, _ = getInitialInputValuesTorch()
 
-benchmark = EffectiveDimBoTorchBenchmark(
-    dim = bounds.shape[1],
-    ub = bounds[1],
-    lb = bounds[0],
-    noise_std=0.01,
-    effective_dim = bounds.shape[1],
-    benchmark_func=RallySynteticFunction
-)
+# benchmark = RallyBenchmark(
+#     dim = bounds.shape[1],
+#     ub = bounds[1],
+#     lb = bounds[0],
+#     noise_std=current_noise_std,
+#     effective_dim = bounds.shape[1],
+#     benchmark_func=RallySynteticFunction
+# )
 
 GTBO(
     benchmark=RallyBenchmark(),
-    maximum_number_evaluations=1000,
-    number_initial_points=5,
+    maximum_number_evaluations=500,
+    number_initial_points=1,
     results_dir="./logs/",
-    device="cpu",
-    dtype='float64',
+    device="cuda",
+    dtype='float32',
     logging_level='info',
     retrain_gp_from_scratch_every=100,
 ).run()

@@ -110,3 +110,47 @@ def getBotParameters():
     compactParameters.extend(getBotUInt8CompactParameters(0x71bf54, 25)) #botDesiredDoublePlaneSpeedByNearTurnAngleHard
     compactParameters.extend(getBotFloat32CompactParameters(0x71be9c, 32, -1.0, 1.0)) #minusCosTrackPositionMod32???
     return list(map(lambda compactParameter: BotParameter(compactParameter), compactParameters))
+
+def setBotParameters(botParametersByAddress, valuesDict, write, writeByte, writeFloat):
+    for botParameter in botParametersByAddress.values():
+        valuesDictKey = getKeyByBotParameter(botParameter)
+        value = valuesDict[valuesDictKey]
+        dataType = botParameter.dataType
+        stepSize = botParameter.stepSize
+        if dataType != "float32":
+            value = int(round(value, 0))
+            min = botParameter.minValue
+            valueDiff = value - min
+            valueDiff = valueDiff - valueDiff % stepSize
+            value = min + valueDiff
+        address = botParameter.address
+        if dataType == "uint8":
+            writeByte(address, value)
+        if dataType == "int8":
+            writeByte(address, value)
+        if dataType == "int32":
+            write(address, value)
+        if dataType == "float32":
+            writeFloat(address, value)
+
+def getKeyByBotParameter(botParameter):
+    dataType = botParameter.dataType
+    address = botParameter.address
+    addressString = hex(address)
+    return f"{addressString}_{dataType}"
+
+def getBotParametersBounds(botParameters):
+    result = {}
+    for botParameter in botParameters:
+        result[getKeyByBotParameter(botParameter)] = getBotParameterBounds(botParameter)
+    return result
+
+def getBotParameterBounds(botParameter):
+    return (botParameter.minValue, botParameter.maxValue)
+
+def getProcessBotParametersByAddress(processBotParameters):
+    getProcessBotParametersByAddress = {}
+    for processBotParameter in processBotParameters:
+        address = processBotParameter.botParameter.address
+        getProcessBotParametersByAddress[address] = processBotParameter
+    return getProcessBotParametersByAddress

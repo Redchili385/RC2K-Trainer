@@ -34,12 +34,12 @@ GroupTester.n_particles = 10000                     # number of particles of the
 GroupTester.n_initial_groups = 3                    # initial random groups in the GT phase
 GroupTester.max_groups_per_iteration = 5            # when using batching in the GT phase, max batch size
 GroupTester.lower_convergence_threshold = 1e-3      # marginals smaller this are considered converged
-GroupTester.activeness_threshold = 0.05             # individuals with probability larger this are considered 'active variables'
+GroupTester.activeness_threshold = 0.10             # individuals with probability larger this are considered 'active variables'
 
 #
 # GroundTruthEvaluator configuration
 #
-GroundTruthEvaluator.n_default_samples = 1 # number of times we evaluate the default before starting GT
+GroundTruthEvaluator.n_default_samples = 5 # number of times we evaluate the default before starting GT
 
 #
 # fit_mll configuration
