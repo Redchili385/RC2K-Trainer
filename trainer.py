@@ -1,3 +1,4 @@
+from locale import normalize
 from time import sleep
 import random
 from datetime import datetime
@@ -7,9 +8,10 @@ from botorch import fit_gpytorch_model
 from gpytorch import ExactMarginalLogLikelihood
 import torch
 from LocalReadWriteMemory import ReadWriteMemory
-from processUtil import ensureWrite, ensureWrites, readFloat
-from rallyProcess import getBotParameters, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, setProcessBotParametersToProcess
-from rallyUtil import currentPlayerToPlayer0, getBotParametersBounds, getProcessBotParametersByAddress
+from process import ensureWrite, ensureWrites, readFloat
+from rallyProcess import RallyProcess, getBotParameters, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, setProcessBotParametersToProcess
+from rallyUtil import currentPlayerToPlayer0, getBotParametersBounds, getBotParametersByKey
+from torchUtil import standardize, unnormalize
 from util import parseJSON, readFile, selectMean
 from gtbo.gaussian_process import robust_optimize_acqf
 from gtbo.benchmarks import BoTorchFunctionBenchmark
@@ -21,139 +23,43 @@ import gin
 import logging
 import os
 
+#Initial configuration
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-
 logging.basicConfig(level=logging.DEBUG)
 logging.debug("DEBUG: RC2K Trainer Started")
-
 random.seed(datetime.now().ctime())
 torch.set_printoptions(threshold=10_000)
-
 mapName = "Port_Soderick"
 fileToLogPath = f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{mapName}.json"
-
-rwm = ReadWriteMemory()
-process = rwm.get_process_by_name("ral.exe")
-process.open()
-
-#pTime = process.get_pointer(0x70f474)
-#time = process.read(pTime)
-#print({'time': time})
-
-#pEnterKeyCode = process.get_pointer(0x4F6AD4)
-#process.write(pEnterKeyCode, 0x1c)
-#pEnterKey = process.get_pointer(0x4F6AF8)
-#process.write(pEnterKey, 0xff)
-
-pWinTime = process.get_pointer(currentPlayerToPlayer0(0x71A080)) #timeStppedCarToWin
-pCompletedSquares = process.get_pointer(currentPlayerToPlayer0(0x71A068))
-pCentisecondsSinceStart = process.get_pointer(currentPlayerToPlayer0(0x71A060))
-pCentisecondsSinceLevelLoaded = process.get_pointer(currentPlayerToPlayer0(0x719FEC))
-pMaxWinTime = process.get_pointer(0x436a13)
-pMaxWinTime2 = process.get_pointer(0x436a39)
-pFalseStartTime = process.get_pointer(0x43b9f4)
-pValidTrackPosition = process.get_pointer(0x70f3ec+0x94)
-pMaximumTrackPosition = process.get_pointer(0x623640)
-engineDamageAddress = 0x70f3ec+0*0xfe0+0x2B8
-#pBotCalculated2Strength2 = process.get_pointer(0x71bfa4)
-#pTriggerGameStart = process.get_pointer(currentPlayerToPlayer0(0x719FF4))
-#pCurrentGearNumber = process.get_pointer(currentPlayerToPlayer0(0x71A1AC))
-#pCurrentAccelerationOnPedal = process.get_pointer(currentPlayerToPlayer0(0x719FF0))
-
-botParameters = getBotParameters()
-processBotParameters = getProcessBotParameters(process)
-processBotParametersByAddress = getProcessBotParametersByAddress(processBotParameters)
-
-botParametersBounds = getBotParametersBounds(botParameters)
-
-def resetCarOnStage():
-    writes = []
-    writes.append([pCompletedSquares, 0])
-    writes.append([pWinTime, 0])
-    if process.read(pCentisecondsSinceStart) > 0:
-        writes.append([pCentisecondsSinceStart, -1000])
-    writes.append([pCentisecondsSinceLevelLoaded, 0])
-    ensureWrites(writes, process)
-    #print("Car Reseted")
-
-def runStage(args):
-    #print(args)
-    print("Start")
-    setProcessBotParametersToProcess(processBotParametersByAddress, args, process)
-    resetCarOnStage()
-    while(True):
-        winTime = process.read(pWinTime)
-        if winTime > 0:
-            break
-        centisecondsSinceStart = process.read(pCentisecondsSinceStart)
-        maximumTrainingSessionTime = 100 * 60 * 15
-        if(centisecondsSinceStart > maximumTrainingSessionTime and centisecondsSinceStart < 0x3FFFFFFF):
-            print("End2")
-            validTrackPosition = process.read(pValidTrackPosition)
-            maximumTrackPosition = process.read(pMaximumTrackPosition)
-            engineDamage = readFloat(engineDamageAddress, process)
-            return (6000/maximumTrainingSessionTime) * (validTrackPosition / maximumTrackPosition) * (1 - engineDamage)
-        sleep(0.1)
-    time = process.read(pCentisecondsSinceStart)
-    #print(time)
-    print("End")
-    return 6000/time
-
-numberOfRunsPerEvaluation = 1
+numberOfRunsPerEvaluation = 2
 #current_noise_std = 0.01/numberOfRunsPerEvaluation
 current_noise_std = 0
+
+#Opening Process because is seems always necessary in traner.py
+process = RallyProcess("ral_botTraining_220424.exe")
+
+#ParameterSetting
+botParameters = getBotParameters()
+botParameterByKey = getBotParametersByKey(botParameters)
+botParametersBounds = getBotParametersBounds(botParameters)
+
 def black_box_function(**args):
     scores = []
     for i in range(numberOfRunsPerEvaluation):
-        scores.append(runStage(args))
+        scores.append(process.runStage(botParametersByKey, args))
     return selectMean(1, scores)
 
-def setBestParameters(process):
-    logsBestString = readFile("./logs/logs_202404220414_Port_Soderick.json")
-    logsBestStrings = logsBestString.split("\n")
-    logsBestList = [parseJSON(line) for line in logsBestStrings if parseJSON(line) is not None]
-    bestLog = logsBestList[120]
-    setProcessBotParametersToProcess(getProcessBotParametersByAddress(getProcessBotParameters(process)), bestLog["params"], process)
-
-def setUpGame():
-    setBestParameters(process)
-    ensureWrite(pMaxWinTime, 3000000, process)
-    ensureWrite(pMaxWinTime2, 3000000, process)
-    ensureWrite(pFalseStartTime, 5000, process)
-    #ensureWrite(pBotCalculated2Strength2, 0x40000000)
-    #fmul dword ptr [00601028]
+def setUpGame(process: RallyProcess):
+    process.setBestParameters()
+    process.ensureWriteInt32(process.pMaxWinTime, 3000000)
+    process.ensureWriteInt32(process.pMaxWinTime2, 3000000)
+    process.ensureWriteInt32(process.pFalseStartTime, 5000)
     
-
-setUpGame()
-
-#print(botParametersBounds["0x71beba_float32"][0])
-#print(type(botParametersBounds["0x71beba_float32"][0]))
+setUpGame(process)
 
 # if os.path.isfile("./logs/logsBest_20240413_Port_Soderick.json"):
 #     load_logs(optimizer, logs=["./logs/logsBest_20240413_Port_Soderick.json"])
 # else:
-
-def standardize(Y):
-    stddim = -1 if Y.dim() < 2 else -2
-    Y_std = Y.std(dim=stddim, keepdim=True)
-    Y_std = Y_std.where(Y_std >= 1e-9, torch.full_like(Y_std, 1.0))
-    Y_mean = Y.mean(dim=stddim, keepdim=True)
-    return (Y - Y_mean) / Y_std, Y_mean, Y_std
-
-def unstandardize(Y, Y_mean, Y_std):
-    return Y * Y_std + Y_mean
-
-def normalize(i: torch.Tensor):
-    min = i.min(dim=0)[0]
-    max = i.max(dim=0)[0]
-    print("min, max")
-    print(min, max)
-    return (i - min) / (max - min), min, max
-
-#print(normalize(torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 10.0, 12.0]], dtype=torch.float64)))
-
-def unnormalize(i, min, max):
-    return i * (max - min) + min
 
 def botParameterBoundsToTensor(botParameterBounds):
     tensorBounds = []
@@ -164,8 +70,8 @@ def botParameterBoundsToTensor(botParameterBounds):
     return torch.tensor(tensorBounds, dtype=torch.float32).transpose(0, 1)
 
 
-def tensorToBotParameterValuesByAddress(tensor):
-    paramValuesByAddress = {}
+def tensorToBotParameterValuesByKey(tensor: torch.Tensor, botParameters):
+    botParameterValuesByKey = {}
     for (i, value) in enumerate(tensor):
         botParameter = botParameters[i]
         # print("botParameter")
@@ -175,15 +81,15 @@ def tensorToBotParameterValuesByAddress(tensor):
         key = getKeyByBotParameter(botParameter)
         # print("key")
         # print(key)
-        paramValuesByAddress[key] = value.item()
-    return paramValuesByAddress
+        botParameterValuesByKey[key] = value.item()
+    return botParameterValuesByKey
 
-def botParameterValuesByAddressToTensor(paramValuesByAddress):
-    initialValues = []
-    for processBotParameter in processBotParameters:
-        key = getKeyByBotParameter(processBotParameter.botParameter)
-        initialValues.append(paramValuesByAddress[key])
-    return torch.tensor(initialValues, dtype=torch.float32)
+def botParameterValuesByKeyToTensor(botParameterValuesByKey, botParameters):
+    tensor = []
+    for botParameter in botParameters:
+        key = getKeyByBotParameter(botParameter)
+        tensor.append(botParameterValuesByKey[key])
+    return torch.tensor(tensor, dtype=torch.float32)
 
 def black_box_torch_function(input_tensor: torch.Tensor, base_tensor: torch.Tensor):
     # print("input_tensor")
@@ -200,8 +106,8 @@ def black_box_torch_function(input_tensor: torch.Tensor, base_tensor: torch.Tens
         copied_base_tensor[:input_tensor_size] = input_tensor_line[:input_tensor_size]
         # print("copied_base_tensor")
         # print(copied_base_tensor)
-        paramValuesByAddress = tensorToBotParameterValuesByAddress(copied_base_tensor)
-        target = black_box_function(**paramValuesByAddress)
+        botParameterValuesByKey = tensorToBotParameterValuesByKey(copied_base_tensor)
+        target = black_box_function(**botParameterValuesByKey)
         targetTensor = torch.tensor([target], dtype=torch.float32)
         logStepValue(input_tensor_line, targetTensor)
         # print("sumTarget")
@@ -210,16 +116,16 @@ def black_box_torch_function(input_tensor: torch.Tensor, base_tensor: torch.Tens
         sumTarget = torch.cat((sumTarget, targetTensor), dim=0)
     return sumTarget
 
-def getInitialInputValuesTorch():
-    valuesByAddress = getProcessBotParameterValuesFromProcess(processBotParametersByAddress, process)
-    return botParameterValuesByAddressToTensor(valuesByAddress), valuesByAddress
+def getInitialInputValuesTorch(process: RallyProcess):
+    botParameterValuesByKey = process.getBotParameterValuesByKey(botParameterByKey)
+    return botParameterValuesByKeyToTensor(botParameterValuesByKey, botParameters), botParameterValuesByKey
 
 def getInitialValueTorch():
-    torchInitialValues, valuesByAddress = getInitialInputValuesTorch()
-    print("torchInitialValues")
-    print(torchInitialValues)
-    torchTarget = torch.tensor([black_box_function(**valuesByAddress)], dtype=torch.float32)
-    return torchInitialValues, torchTarget
+    botParameterValuesTensor, botParameterValuesByKey = getInitialInputValuesTorch(process)
+    print("botParameterValuesTensor")
+    print(botParameterValuesTensor)
+    targetTensor = torch.tensor([black_box_function(**botParameterValuesByKey)], dtype=torch.float32)
+    return botParameterValuesTensor, targetTensor
 
 def getInitialValuesTorch(bounds: torch.Tensor):
     torchInitialValues, torchTarget = getInitialValueTorch()
@@ -251,9 +157,9 @@ def getNextValuesTorch(initX, initY):
     newTarget = black_box_torch_function(candidatesToRun)
     return candidatesToRun, newTarget
 
-def logStepValue(stepParams, target):
+def logStepValue(stepParams, target: torch.Tensor):
     file = open(fileToLogPath, "a")
-    botParameterValues = tensorToBotParameterValuesByAddress(stepParams)
+    botParameterValues = tensorToBotParameterValuesByKey(stepParams)
     file.write(json.dumps({
         "target": target.item(),
         "params": botParameterValues
@@ -265,16 +171,29 @@ def logStepValue(stepParams, target):
 initialBounds = botParameterBoundsToTensor(botParametersBounds)
 print("initialBounds")
 print(initialBounds)
+print("initialBoundsSize")
+print(initialBounds.shape[1])
 initialInputValuesTorch, _ = getInitialInputValuesTorch()
 print("initialInputValuesTorch")
 print(initialInputValuesTorch)
 boundsWindow = 0.005
-bounds = (initialBounds - initialInputValuesTorch)*boundsWindow + initialInputValuesTorch
+unitBoundsAmplitude = 1.5
+unitBounds = torch.cat((torch.zeros(initialBounds.shape[1]).unsqueeze(0), torch.ones(initialBounds.shape[1]).unsqueeze(0))).transpose(0, 1) * unitBoundsAmplitude - unitBoundsAmplitude/2
+print(unitBounds)
+print(initialInputValuesTorch.unsqueeze(1))
+print("sum")
+print(initialInputValuesTorch.unsqueeze(1) + unitBounds)
+bounds = torch.clamp(initialInputValuesTorch.unsqueeze(1) + unitBounds, min=initialBounds[0].unsqueeze(1), max=initialBounds[1].unsqueeze(1))
+#bounds = initialInputValuesTorch.unsqueeze(1) + unitBounds
+#bounds = (initialBounds - initialInputValuesTorch)*boundsWindow + initialInputValuesTorch
 print("bounds")
 print(bounds)
 transposedBounds = bounds.clone().detach().transpose(0, 1)
 print("transposedBounds")
 print(transposedBounds)
+initialInputValuesTorch = torch.clamp(initialInputValuesTorch, min=transposedBounds[0], max=transposedBounds[1])
+print("clampedInitialInputValuesTorch")
+print(initialInputValuesTorch)
 
 def startBoTorchBayesianOptimization():
     maxSteps = 500
@@ -320,15 +239,15 @@ class RallyBenchmark(BoTorchFunctionBenchmark):
     def __init__(self, **kwargs):
         logging.debug("Init RallyBenchmark")
         super().__init__(
-            dim = bounds.shape[1],
+            dim = bounds.shape[0],
             noise_std=current_noise_std,
-            ub = bounds[1],
-            lb = bounds[0],
+            ub = transposedBounds[1],
+            lb = transposedBounds[0],
             returns_noiseless=True,
             #effective_dim = bounds.shape[1],
             benchmark_func=RallySynteticFunction
         )
-        self.default, _ = getInitialInputValuesTorch()
+        self.default = initialInputValuesTorch
 
 # benchmark = RallyBenchmark(
 #     dim = bounds.shape[1],

@@ -111,8 +111,8 @@ def getBotParameters():
     compactParameters.extend(getBotFloat32CompactParameters(0x71be9c, 32, -1.0, 1.0)) #minusCosTrackPositionMod32???
     return list(map(lambda compactParameter: BotParameter(compactParameter), compactParameters))
 
-def setBotParameters(botParametersByAddress, valuesDict, write, writeByte, writeFloat):
-    for botParameter in botParametersByAddress.values():
+def setBotParameters(botParametersByKey, valuesDict, writeInt32, writeByte, writeFloat):
+    for botParameter in botParametersByKey.values():
         valuesDictKey = getKeyByBotParameter(botParameter)
         value = valuesDict[valuesDictKey]
         dataType = botParameter.dataType
@@ -129,7 +129,7 @@ def setBotParameters(botParametersByAddress, valuesDict, write, writeByte, write
         if dataType == "int8":
             writeByte(address, value)
         if dataType == "int32":
-            write(address, value)
+            writeInt32(address, value)
         if dataType == "float32":
             writeFloat(address, value)
 
@@ -148,9 +148,9 @@ def getBotParametersBounds(botParameters):
 def getBotParameterBounds(botParameter):
     return (botParameter.minValue, botParameter.maxValue)
 
-def getProcessBotParametersByAddress(processBotParameters):
-    getProcessBotParametersByAddress = {}
-    for processBotParameter in processBotParameters:
-        address = processBotParameter.botParameter.address
-        getProcessBotParametersByAddress[address] = processBotParameter
-    return getProcessBotParametersByAddress
+def getBotParametersByKey(botParameters):
+    botParametersByKey = {}
+    for botParameter in botParameters:
+        key = getKeyByBotParameter(botParameter)
+        botParametersByKey[key] = botParameter
+    return botParametersByKey

@@ -15,8 +15,12 @@
 # print(0x9E3738)
 # print(f"{floatToInt(10368829.1, 0x9E3738, 4):08x}")
 
-from exeUtil import writeFloat
-from rallyExe import getExeAddress
+#from exeUtil import writeFloat
+#from rallyExe import getExeAddress
 
-print(f"0x{getExeAddress(0x71bf38):08x}")
+#print(f"0x{getExeAddress(0x71bf38):08x}")
 #riteByte("./ral.exe", 0x15, 2)
+
+for (addr, value) in (5, 3):
+  print(addr)
+  print(value)
