@@ -1,4 +1,3 @@
-from locale import normalize
 from time import sleep
 import random
 from datetime import datetime
@@ -11,7 +10,7 @@ from LocalReadWriteMemory import ReadWriteMemory
 from process import ensureWrite, ensureWrites, readFloat
 from rallyProcess import RallyProcess, getBotParameters, getKeyByBotParameter, getProcessBotParameterValuesFromProcess, getProcessBotParameters, setProcessBotParametersToProcess
 from rallyUtil import currentPlayerToPlayer0, getBotParametersBounds, getBotParametersByKey
-from torchUtil import standardize, unnormalize
+from torchUtil import normalize, standardize, unnormalize
 from util import parseJSON, readFile, selectMean
 from gtbo.gaussian_process import robust_optimize_acqf
 from gtbo.benchmarks import BoTorchFunctionBenchmark
@@ -46,7 +45,7 @@ botParametersBounds = getBotParametersBounds(botParameters)
 def black_box_function(**args):
     scores = []
     for i in range(numberOfRunsPerEvaluation):
-        scores.append(process.runStage(botParametersByKey, args))
+        scores.append(process.runStage(botParameterByKey, args))
     return selectMean(1, scores)
 
 def setUpGame(process: RallyProcess):
