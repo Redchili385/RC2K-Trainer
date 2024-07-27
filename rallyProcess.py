@@ -1,8 +1,7 @@
 
 from time import sleep
 from process import Process
-from rallyUtil import currentPlayerToPlayer0, getBotParameters, getKeyByBotParameter, setBotParameters
-from util import parseJSON, readFile
+from rallyUtil import currentPlayerToPlayer0, getKeyByBotParameter, setBotParameters
 
 class RallyProcess(Process):
     def __init__(self, processName = "ral_botTraining_220424.exe"):
@@ -82,11 +81,3 @@ class RallyProcess(Process):
         def writeFloat(address, value):
             self.ensureWriteFloat(address, value)
         setBotParameters(botParametersByKey, valuesDict, writeInt32, writeByte, writeFloat)
-
-    def setBestParameters(self, jsonParametersPath = "./logs/logs_202404240509_Port_Soderick.json", lineIndex = 75):
-        logsBestString = readFile(jsonParametersPath)
-        logsBestStrings = logsBestString.split("\n")
-        logsBestList = [parseJSON(line) for line in logsBestStrings if parseJSON(line) is not None]
-        bestLog = logsBestList[lineIndex]
-        self.setBotParameterValues(getBotParameters(), bestLog["params"])
-      

@@ -103,14 +103,13 @@ class RallyTorchTrainer(RallyTrainer):
     return sumTarget
   
   def getInitialInputValuesTorch(self):
-    botParameterValuesByKey = self.process.getBotParameterValuesByKey(self.botParameterByKey)
-    return self.botParameterValuesByKeyToTensor(botParameterValuesByKey, self.botParameters), botParameterValuesByKey
+    return self.botParameterValuesByKeyToTensor(self.botParameterValuesByKey, self.botParameters)
   
   def getInitialValueTorch(self):
-    botParameterValuesTensor, botParameterValuesByKey = self.getInitialInputValuesTorch()
+    botParameterValuesTensor = self.getInitialInputValuesTorch()
     print("botParameterValuesTensor")
     print(botParameterValuesTensor)
-    targetTensor = torch.tensor([self.black_box_function(**botParameterValuesByKey)], dtype=torch.float32)
+    targetTensor = torch.tensor([self.black_box_function(**self.botParameterValuesByKey)], dtype=torch.float32)
     return botParameterValuesTensor, targetTensor
   
   def getInitialValuesTorch(self, bounds: torch.Tensor):

@@ -14,6 +14,8 @@ class Process:
         self.rwmProcess.close()
 
     def getPointer(self, address):
+        if address not in self.pointers:
+            self.pointers[address] = self.rwmProcess.get_pointer(address)
         return self.pointers[address]
     
     def setPointer(self, address, pointer):
@@ -29,7 +31,7 @@ class Process:
         for addrValue in addrValues:
             addr = addrValue[0]
             value = int32(addrValue[1])
-            self.write(addr, value)
+            self.writeInt32(addr, value)
 
     def ensureWriteInt32(self, address, value):
         value = int32(value)
@@ -59,14 +61,14 @@ class Process:
             self.writeInt32Values(addrValues)
 
     def readFloat(self, address):
-        intValue = self.read(address)
+        intValue = self.readInt32(address)
         bytes = struct.pack("<I", intValue)
         return struct.unpack("<f", bytes)[0]
     
     def writeFloat(self, address, value):
         bytes = struct.pack("<f", value)
         intValue = struct.unpack("<I", bytes)[0]
-        self.write(address, intValue)
+        self.writeInt32(address, intValue)
 
     def ensureWriteFloat(self, address, value):
         bytes = struct.pack("<f", value)
