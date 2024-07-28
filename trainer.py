@@ -4,6 +4,7 @@ from datetime import datetime
 import torch
 from rallyProcess import RallyProcess
 from rallySimpleBOTrainer import RallySimpleBOTrainer
+from rallyTrainingResultsService import RallyTrainingResultsService
 import gin
 import logging
 import os
@@ -18,7 +19,10 @@ gin.parse_config_file('default.gin')
 
 #Opening Process because is seems always necessary in traner.py
 process = RallyProcess("ral_botTraining_220424.exe")
-trainer = RallySimpleBOTrainer(process)
+initBotParameterValuesWithTargetList = RallyTrainingResultsService.loadBestBotParameterValuesList(
+  "training-results/20240726.json"
+)
+trainer = RallySimpleBOTrainer(process, initBotParameterValuesWithTargetList)
 trainer.train()
 
 # if os.path.isfile("./logs/logsBest_20240413_Port_Soderick.json"):

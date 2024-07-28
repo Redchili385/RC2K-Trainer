@@ -4,15 +4,21 @@ from rallyUtil import getBotParameters, getBotParametersBounds, getBotParameters
 from util import parseJSON, readFile, selectMean
 
 class RallyTrainer:
-  def __init__(self, process: RallyProcess):
+  def __init__(self, process: RallyProcess, initBotParameterValuesWithTargetList: "list[dict]" = None):
     self.process = process
     self.numberOfRunsPerEvaluation = 2
-    self.mapName = "Port_Soderick"
+    self.mapName = "Parkanaur"
     self.fileToLogPath = f"./logs/logs_{datetime.now().strftime('%Y%m%d%H%M')}_{self.mapName}.json"
     self.setUpGame()
     self.setInitialProperties()
-    self.setBestParameters()
-    self.botParameterValuesByKey = self.process.getBotParameterValuesByKey(self.botParameterByKey)
+    self.initBotParameterValuesList = [
+      self.process.getBotParameterValuesByKey(self.botParameterByKey),
+    ]
+    if initBotParameterValuesWithTargetList is not None:
+      self.setBestParameters(initBotParameterValuesWithTargetList)
+      for initBotParameterValuesWithTarget in initBotParameterValuesWithTargetList:
+        botParameterValues = {k: initBotParameterValuesWithTarget["params"][k] for k in initBotParameterValuesWithTarget["params"] if k in self.botParameterByKey}
+        self.initBotParameterValuesList.append(botParameterValues)
 
   def setUpGame(self):
     process = self.process
@@ -25,13 +31,9 @@ class RallyTrainer:
     self.botParameterByKey = getBotParametersByKey(self.botParameters)
     self.botParametersBounds = getBotParametersBounds(self.botParameters)
 
-  def setBestParameters(self, jsonParametersPath = "./logs/logs_202404240509_Port_Soderick.json", lineIndex = 75):
-    logsBestString = readFile(jsonParametersPath)
-    logsBestStrings = logsBestString.split("\n")
-    logsBestList = [parseJSON(line) for line in logsBestStrings if parseJSON(line) is not None]
-    bestLog = logsBestList[lineIndex]
-    print(bestLog["params"])
-    self.process.setBotParameterValues(self.botParameterByKey, bestLog["params"])
+  def setBestParameters(self, botParameterValuesWithTargetList):
+    bestBotParameterValuesWithTarget = max(botParameterValuesWithTargetList, key=lambda botParameterValuesWithTarget: botParameterValuesWithTarget["target"])
+    self.process.setBotParameterValues(self.botParameterByKey, bestBotParameterValuesWithTarget["params"])
 
   def black_box_function(self, **args):
     scores = []

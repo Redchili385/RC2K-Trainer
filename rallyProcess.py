@@ -81,3 +81,17 @@ class RallyProcess(Process):
         def writeFloat(address, value):
             self.ensureWriteFloat(address, value)
         setBotParameters(botParametersByKey, valuesDict, writeInt32, writeByte, writeFloat)
+
+    def holdEnter(self):
+        self.ensureWriteByte(0x46602f, 90)
+        self.ensureWriteByte(0x466030, 90)
+        self.ensureWriteInt32(0x465fff, 0x90909090)
+        self.ensureWriteByte(0x466003, 90)
+        self.ensureWriteByte(0x466004, 90)
+
+    def releaseEnter(self):
+        self.ensureWriteByte(0x46602f, 0x3c)
+        self.ensureWriteByte(0x466030, 0x1c)
+        self.ensureWriteInt32(0x465fff, 0x0128840f)
+        self.ensureWriteByte(0x466003, 0x00)
+        self.ensureWriteByte(0x466004, 0x0)

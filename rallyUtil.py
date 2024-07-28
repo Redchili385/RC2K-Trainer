@@ -106,9 +106,9 @@ def getBotParameters():
         # getBotInt32CompactParameter(0x46325e, -360000, 360000), #InternalCentisecondsOnReverseAssignment2
         # getBotUInt8CompactParameter(0x46327e), #SumChangesPlus1Comparison
     ]
-    compactParameters.extend(getBotUInt8CompactParameters(0x71bf38, 25)) #botDesiredDoublePlaneSpeedByNearTurnAngleEasy
-    compactParameters.extend(getBotUInt8CompactParameters(0x71bf54, 25)) #botDesiredDoublePlaneSpeedByNearTurnAngleHard
-    compactParameters.extend(getBotFloat32CompactParameters(0x71be9c, 32, -1.0, 1.0)) #minusCosTrackPositionMod32???
+    #compactParameters.extend(getBotUInt8CompactParameters(0x71bf38, 25)) #botDesiredDoublePlaneSpeedByNearTurnAngleEasy
+    #compactParameters.extend(getBotUInt8CompactParameters(0x71bf54, 25)) #botDesiredDoublePlaneSpeedByNearTurnAngleHard
+    #compactParameters.extend(getBotFloat32CompactParameters(0x71be9c, 32, -1.0, 1.0)) #minusCosTrackPositionMod32???
     return list(map(lambda compactParameter: BotParameter(compactParameter), compactParameters))
 
 def setBotParameters(botParametersByKey, valuesDict, writeInt32, writeByte, writeFloat):
