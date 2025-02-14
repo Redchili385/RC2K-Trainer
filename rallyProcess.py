@@ -1,7 +1,9 @@
 
+import math
 from time import sleep
 from process import Process
 from rallyUtil import currentPlayerToPlayer0, getKeyByBotParameter, setBotParameters
+from util import extendedLog2, selectMean
 
 class RallyProcess(Process):
     def __init__(self, processName = "ral_botTraining_220424.exe"):
@@ -14,7 +16,7 @@ class RallyProcess(Process):
         self.pCompletedSquares = currentPlayerToPlayer0(0x71A068)
         self.pCentisecondsSinceStart = currentPlayerToPlayer0(0x71A060)
         self.pCentisecondsSinceLevelLoaded = currentPlayerToPlayer0(0x719FEC)
-        self.pArcadeStageIndex = 0x7587f0
+        self.pArcadeStageLevel = 0x7587f0
         self.pMaxWinTime = 0x436a13
         self.pMaxWinTime2 = 0x436a39
         self.pFalseStartTime = 0x43b9f4
@@ -56,7 +58,6 @@ class RallyProcess(Process):
         winTime = self.readInt32(self.pWinTime)
         centisecondsSinceStart = self.readInt32(self.pCentisecondsSinceStart)
         if winTime > 0:
-            centisecondsSinceStart = self.readInt32(self.pCentisecondsSinceStart)
             print("End")
             return centisecondsSinceStart, True
         maximumTrainingSessionTime = 100 * 60 * 15
@@ -64,38 +65,40 @@ class RallyProcess(Process):
             print("End2")
             validTrackPosition = self.readInt32(self.pValidTrackPosition)
             maximumTrackPosition = self.readInt32(self.pMaximumTrackPosition)
-            engineDamage = self.readFloat(self.pEngineDamageAddress)
-            return (maximumTrainingSessionTime) * (maximumTrackPosition/ validTrackPosition) / (1 - engineDamage), False
+            return (maximumTrainingSessionTime) * (maximumTrackPosition / validTrackPosition), False
         return None
     
-    def runArcade(self, botParametersByKey, args, stageTries = 3, stageRepeatTimes = 2):
+    def runArcade(self, botParametersByKey, args, stageTries = 2, stageRepeatTimes = 3):
         self.setBotParameterValues(botParametersByKey, args)
+        self.freezeGameLoop()
         self.ensureWriteByte(self.pArcadeModeInnerMode, 0x00)
+        self.unfreezeGameLoop()
         sumArcadeTime = 0
         for arcadeStageIndex in range(6):
             print("Arcade Stage Index: ", arcadeStageIndex + 1)
-            minTime = 0x3FFFFFFF
+            while(self.getCurrentArcadeStageLevel() != arcadeStageIndex + 1):
+                print("Current Stage: ", self.getCurrentArcadeStageLevel(), "Changing to Stage: ", arcadeStageIndex + 1)
+                self.ensureWin()
+                self.goToNextStage()
+                self.waitForStageStart()
+            successfulValues = []
             for repeatIndex in range(stageRepeatTimes):
+                minTime = 0x3FFFFFFF
+                if(repeatIndex > 0):
+                    self.resetCarOnStage()
                 for j in range(stageTries):
+                    if(j > 0):
+                        self.resetCarOnStage()
                     print("Repeat: ", repeatIndex + 1, "Try: ", j + 1)
                     stageResults = self.waitForStageResults()
                     completed = stageResults[1]
                     print("Time: ", stageResults[0])
                     print("Completed: ", completed)
                     minTime = min(minTime, stageResults[0])
-                    if((not completed) and (j < stageTries - 1)):
-                        self.resetCarOnStage()
-                        continue
-                    break
-                if(repeatIndex < stageRepeatTimes - 1):
-                    self.resetCarOnStage()
-                    continue
-                while(self.getCurrentArcadeStageIndex() == arcadeStageIndex + 1):
-                    self.ensureWin()
-                    self.goToNextStage()
-                    self.waitForStageStart()
-                break
-            sumArcadeTime += minTime
+                    if(completed):
+                        break
+                successfulValues.append(minTime)
+            sumArcadeTime += selectMean(stageRepeatTimes - 1, successfulValues)
         return sumArcadeTime
 
     def getBotParameterValuesByKey(self, botParameterByKey):
@@ -173,8 +176,8 @@ class RallyProcess(Process):
         sleep(0.5)
         self.holdCarOnStage()
 
-    def getCurrentArcadeStageIndex(self):
-        return self.readInt32(self.pArcadeStageIndex)
+    def getCurrentArcadeStageLevel(self):
+        return self.readInt32(self.pArcadeStageLevel)
     
     def freezeGameLoop(self):
         self.ensureWriteByte(0x4454fb, 0x00)
@@ -182,3 +185,58 @@ class RallyProcess(Process):
     
     def unfreezeGameLoop(self):
         self.ensureWriteByte(0x4454fb, 0xEF)
+
+    def speedUpTime(self, speed):
+        originalMilisecondsPerGameTick = 10
+        newMillisecondsPerGameTick = originalMilisecondsPerGameTick / speed
+        self.setMillisecondsPerGameTick(newMillisecondsPerGameTick)
+    
+    def setOriginalTime(self):
+        self.setMillisecondsPerGameTick(10)
+
+    def setMillisecondsPerGameTick(self, millisecondsPerGameTick):
+        newValueBoundsUsingMul = (
+            math.floor(1/millisecondsPerGameTick), 
+            1/millisecondsPerGameTick, 
+            math.ceil(1/millisecondsPerGameTick)
+        )
+        newValueBoundsUsingDiv = (
+            math.floor(millisecondsPerGameTick), 
+            millisecondsPerGameTick, 
+            math.ceil(millisecondsPerGameTick)
+        )
+        bounds = [
+            {"isMul": True, "floatValue": newValueBoundsUsingMul[1], "value": newValueBoundsUsingMul[0]},
+            {"isMul": True, "floatValue": newValueBoundsUsingMul[1], "value": newValueBoundsUsingMul[2]},
+            {"isMul": False, "floatValue": newValueBoundsUsingDiv[1], "value": newValueBoundsUsingDiv[0]},
+            {"isMul": False, "floatValue": newValueBoundsUsingDiv[1], "value": newValueBoundsUsingDiv[2]}
+        ]
+        minLogDistance = float("inf")
+        minLogDistanceBound = None
+        for bound in bounds:
+            print(bound)
+            logDistance = abs(extendedLog2(bound["value"]) - extendedLog2(bound["floatValue"]))
+            if logDistance < minLogDistance:
+                minLogDistance = logDistance
+                minLogDistanceBound = bound
+        print("minLogDistanceBound")
+        print(minLogDistanceBound)
+        if minLogDistanceBound["isMul"]:
+            self.speedUpTimeUsingMulFirst(minLogDistanceBound["value"])
+            return
+        self.speedUpTimeUsingDivFirst(minLogDistanceBound["value"])
+
+    def speedUpTimeUsingDivFirst(self, newInt32Time):
+        self.freezeGameLoop()
+        self.ensureWriteByte(0x4455a1, 0xe3)
+        self.ensureWriteByte(0x44559a, 0xf3)
+        self.ensureWriteInt32(0x445595, newInt32Time)
+        self.unfreezeGameLoop()
+
+    def speedUpTimeUsingMulFirst(self, newInt32Time):
+        self.freezeGameLoop()
+        self.ensureWriteByte(0x4455a1, 0xf3)
+        self.ensureWriteByte(0x44559a, 0xe3)
+        self.ensureWriteInt32(0x445595, newInt32Time)
+        self.unfreezeGameLoop()
+        

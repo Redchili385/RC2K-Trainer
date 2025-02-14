@@ -85,6 +85,11 @@ class Process:
         ptr = self.getPointer(address)
         process.writeByte(ptr, [value])
 
+    def writeBytes(self, address, values):
+        process = self.rwmProcess
+        ptr = self.getPointer(address)
+        process.writeByte(ptr, values)
+
     def ensureWriteByte(self, address, value):
         value = uint8(value)
         self.writeByte(address, value)

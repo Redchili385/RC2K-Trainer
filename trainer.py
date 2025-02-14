@@ -20,7 +20,7 @@ gin.parse_config_file('default.gin')
 #Opening Process because is seems always necessary in traner.py
 process = RallyProcess("ral_botTraining_220424.exe")
 initBotParameterValuesWithTargetList = RallyTrainingResultsService.loadBestBotParameterValuesList(
-  "training-results/20240726.json"
+  "training-results/20240729.json"
 )
 trainer = RallySimpleBOTrainer(process, initBotParameterValuesWithTargetList)
 trainer.train()
